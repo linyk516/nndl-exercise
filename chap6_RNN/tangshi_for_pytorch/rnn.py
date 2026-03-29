@@ -18,11 +18,14 @@ def weights_init(m):
 
 
 class word_embedding(nn.Module):
-    def __init__(self,vocab_length , embedding_dim):
+    def __init__(self,vocab_length , embedding_dim, padding_idx=None):
         super(word_embedding, self).__init__()
         w_embeding_random_intial = np.random.uniform(-1,1,size=(vocab_length ,embedding_dim))
-        self.word_embedding = nn.Embedding(vocab_length,embedding_dim)
+        self.word_embedding = nn.Embedding(vocab_length,embedding_dim, padding_idx=padding_idx)
         self.word_embedding.weight.data.copy_(torch.from_numpy(w_embeding_random_intial))
+        if padding_idx is not None:
+            # Keep PAD vector fixed to zeros so it does not inject trainable noise.
+            self.word_embedding.weight.data[padding_idx].zero_()
     def forward(self,input_sentence):
         """
         :param input_sentence:  a tensor ,contain several word index.
@@ -44,9 +47,7 @@ class RNN_model(nn.Module):
         #########################################
         # here you need to define the "self.rnn_lstm"  the input size is "embedding_dim" and the output size is "lstm_hidden_dim"
         # the lstm should have two layers, and the  input and output tensors are provided as (batch, seq, feature)
-        # ???
-
-
+        self.rnn_lstm = nn.LSTM(self.word_embedding_dim, self.lstm_dim, num_layers = 2,  batch_first=True)
 
         ##########################################
         self.fc = nn.Linear(lstm_hidden_dim, vocab_len )
@@ -55,17 +56,18 @@ class RNN_model(nn.Module):
         self.softmax = nn.LogSoftmax() # the activation function.
         # self.tanh = nn.Tanh()
     def forward(self,sentence,is_test = False):
-        batch_input = self.word_embedding_lookup(sentence).view(1,-1,self.word_embedding_dim)
+        if sentence.dim() == 1:
+            sentence = sentence.unsqueeze(0)
+
+        batch_input = self.word_embedding_lookup(sentence)
         # print(batch_input.size()) # print the size of the input
         ################################################
         # here you need to put the "batch_input"  input the self.lstm which is defined before.
         # the hidden output should be named as output, the initial hidden state and cell state set to zero.
-        # ???
-
-
-
+        output, (h_n, c_n) = self.rnn_lstm(batch_input)
 
         ################################################
+        batch_size, seq_len, _ = output.size()
         out = output.contiguous().view(-1,self.lstm_dim)
 
         out =  F.relu(self.fc(out))
@@ -73,7 +75,7 @@ class RNN_model(nn.Module):
         out = self.softmax(out)
 
         if is_test:
-            prediction = out[ -1, : ].view(1,-1)
+            prediction = out.view(batch_size, seq_len, -1)[:, -1, :]
             output = prediction
         else:
            output = out
